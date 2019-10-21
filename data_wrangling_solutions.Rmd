@@ -1,0 +1,357 @@
+---
+title: "Data Wrangling Practice Solutions"
+author: "Scott Jackson"
+date: "October 21, 2019"
+output: pdf_document
+---
+
+# Preliminaries
+
+This is a set of example solutions for the Practice Exercises in the Data Wrangling materials for this course.  These are not the only possible solutions, and sometimes I may give a few alternatives or comment on the choices I make.  But if you did yours differently, ask about it!
+
+To start off, let's load the `tidyverse` package and load a copy of the `sleep` data as a new object (in our current workspace).
+
+```{r}
+library(tidyverse)
+mysleep <- sleep
+```
+
+# Practice Exercise #1
+
+```{r plot = TRUE}
+ggplot(mysleep, aes(extra)) + geom_histogram(binwidth = 2)
+ggplot(mysleep, aes(extra)) + geom_histogram(binwidth = 1.5)
+ggplot(mysleep, aes(extra)) + geom_histogram(binwidth = 1)
+ggplot(mysleep, aes(extra)) + geom_histogram(binwidth = 0.5)
+ggplot(mysleep, aes(extra)) + geom_histogram(binwidth = 0.05)
+```
+
+The bin "width" is in the scale of the data itself. So a bin width of 1 means a different bin for every unit of the measurement itself. This is handy.
+
+A few things jump out to me when looking at these:
+
+  - If we get too narrow, we get only one or two observations per "bin"
+  - The mode is around zero, no matter what the bin width is
+  - Whether there's a second "mode" to the right of zero seems to depend on which bin width we choose
+  
+# Practice Exercise #2
+
+1. Create a new column in `mysleep` that is the square root of the absolute value of `extra`.
+
+```{r}
+mysleep <- mysleep %>% mutate(extra_trans = sqrt(abs(extra)))
+head(mysleep)
+```
+
+2. Learn and practice how to use `ifelse()` to create or transform a variable conditional on another variable.
+    a. Read the help for `ifelse()` to see how it works.
+    b. Use `ifelse()` inside `mutate()` to create a new character column called `extra_cat`, which has the value "low" wherever `extra` is less than or equal to 0, "medium" where `extra` is between 0 and 3, and "high where `extra` is 3 or greater.
+    c. Imagine the values for `extra` were all recorded wrong for subjects 1, 3, and 7, where those values should be 2 units higher.  Use `ifelse()` to create an `extra_corrected` column that corrects these values.
+  
+```{r}
+# a.
+?ifelse
+
+# b.
+mysleep <- mutate(mysleep, # just another way to do this, without the %>% operator
+                  extra_cat = ifelse(extra <= 0, "low",
+                                     ifelse(extra >= 3, "high", "medium")))
+xtabs(~ extra + extra_cat, mysleep)
+
+# c.
+mysleep <- mysleep %>% mutate(extra_corrected = ifelse(ID %in% c("1", "3", "7"),
+                                                       extra + 2,
+                                                       extra))
+mysleep %>% select(extra_corrected, extra, ID)
+```
+
+# Practice Exercise #3
+
+Run the following code to see what happens:
+
+```{r results = FALSE}
+mysleep_missing <- mysleep
+mysleep_missing[c(1, 4, 7, 13), "extra"] <- NA
+mysleep_missing %>% summarize(extra_mean = mean(extra))
+```
+
+Modify the final line in the above code so that the `mean()` function ignores NAs, and will therefore return the mean value of the observed values. (Hint: review the help for `mean()` if you get stuck.)
+
+```{r}
+mysleep_missing %>% summarize(extra_mean = mean(extra, na.rm = TRUE))
+```
+
+# Practice Exercise #4
+
+1. Plot the mean value of `extra` for each subject ID in `mysleep`
+    a.  ...using `geom_point()`
+    b.  ...using `geom_bar()`
+
+```{r}
+mysleep <- sleep
+sleep_subjmeans <- mysleep %>% group_by(ID) %>% summarize(extra_mean = mean(extra))
+
+ggplot(sleep_subjmeans, aes(ID, extra_mean)) + geom_point()
+ggplot(sleep_subjmeans, aes(ID, extra_mean)) + geom_bar(stat = "identity")
+```
+
+2. Try adding error bars with `geom_errorbar()` based on the standard deviations.
+    a. Compute a summary table of both means and standard deviations, separately for each `group` in `mysleep`
+    b. Specify the arguments of `geom_errorbar()` so that the error bars extend 1 standard deviation above and below the mean
+    - `geom_errorbar()` has additional aesthetics (i.e., arguments inside `aes()` inside `geom_errorbar()`)
+        - `ymin`: the lowest point of the error bar
+        - `ymax`: the highest point of the error bar
+    c. You may want to make the fill color of the bars lighter, in order to make the lower part of the error bar more visible.  Try experimenting with a `fill` argument inside `geom_bar()`.
+
+```{r}
+sleep_cellmeans <- mysleep %>% group_by(group) %>%
+  summarize(mean = mean(extra),
+            sd = sd(extra))
+
+ggplot(sleep_cellmeans, aes(group, mean)) + 
+  geom_bar(stat = "identity", fill = "grey") +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd))
+
+ggplot(sleep_cellmeans, aes(group, mean)) + 
+  geom_bar(stat = "identity", fill = "grey") +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width = .3) +
+  theme_minimal()
+
+```
+
+3. Now try the "point" version of the above, using `geom_pointrange()` to replace both `geom_bar()` and `geom_errorbar()`
+    a. Use the same summary table of means and standard deviations
+    b. Like `geom_errorbar()`, `geom_pointrange()` uses `ymin` and `ymax` arguments
+    c. Any apparent advantages/disadvantages over the bars + error bars visualization?
+
+```{r}
+ggplot(sleep_cellmeans, aes(group, mean)) +
+  geom_pointrange(aes(ymin = mean - sd, ymax = mean + sd)) +
+  theme_minimal()
+
+ggplot(sleep_cellmeans, aes(group, mean)) + 
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width = .3) +
+  theme_minimal()
+```
+
+Error bar extending beyond the bottom of a bar in the bar plot is ugly!
+
+## Practice Exercise #5
+
+Previously we used standard deviations for error bars. This is not necessarily bad, but more typically we depend on standard errors.  The standard error of the mean of a variable $x$ with $N$ values and standard deviation $\sigma$ is typically defined as:
+
+$SE = \frac{\sigma}{\sqrt{N}}$
+
+In English, this means to take the standard deviation of the variable and divide it by the square root of the number of values in the variable.  
+
+1. Create a function called `std.err()` that takes a vector as an argument and returns the standard error of the mean of that vector.
+
+```{r}
+std.err <- function(x) {
+  se <- sd(x)/sqrt(length(x))
+  return(se)
+}
+
+# or, slightly lazier
+std.err <- function(x) sd(x)/sqrt(length(x))
+
+```
+
+2. Revisit the `sleep` data again (again saving a copy called `mysleep` in the workspace) and create a `sleep_cellmeans` summary table that has the mean and standard error for both groups.
+
+```{r}
+mysleep <- sleep
+sleep_cellmeans <- mysleep %>% group_by(group) %>%
+  summarize(mean = mean(extra), se = std.err(extra))
+sleep_cellmeans
+```
+
+3. 95% confidence intervals are usually associated with $\pm$ 1.96 standard errors (and some people round this up to 2). Using either `geom_bar() + geom_errorbar()` or `geom_pointrange()`, plot the means and 95% confidence intervals around those means using the table in #2.
+
+```{r plot = TRUE}
+ggplot(sleep_cellmeans, aes(group, mean)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin = mean - 1.96*se, ymax = mean + 1.96*se),
+                width = .33)
+```
+
+
+## Practice Exercise #6
+
+Examine the `iris` data, which is another classic data set built in to R.  Start by again making a copy in your workspace:
+
+```{r eval = FALSE}
+myiris <- iris
+head(myiris)
+summary(myiris)
+```
+
+Follow these steps to make this data set tidier and longer:
+
+1. Create a `plantID` column to identify each row as measurements from a different plant
+
+```{r}
+myiris <- myiris %>% mutate(plantID = paste0("plant", 1:nrow(.)))
+```
+
+Couple of notes:
+- `paste0()` is a convenient form of `paste()` that doesn't use a separator
+- if you want to refer to the data frame being passed into the first argument elsewhere in the function, you can use a dot to do so (as where I used `` `nrow(.)` `` to capture the number of rows of `myiris`)
+
+2. Make the data set longer by putting all measurements (which are in cm) into a single column. The names of the columns you are collapsing together should end up in a new variable.
+
+```{r}
+myiris_long <- myiris %>% 
+  pivot_longer(cols = Sepal.Length:Petal.Width, 
+               names_to = "measurement_type", 
+               values_to = "cm")
+```
+
+Notes:
+- You can use the `:` operator to conveniently specify a range of columns
+
+3. The variable where the columns names went still represents two different variables, the part of the plant, and the dimension being measured.  Split those into two separate columns.  You can do this by giving a vector of names for the `names_to` argument, and then using the `names_pattern` argument (see the help, try to figure it out). One more **hint**: in the pattern, use a single dot to represent "any character" and `\\.` to stand for a literal dot.
+
+```{r}
+myiris_long_separated <- myiris %>% 
+  pivot_longer(cols = Sepal.Length:Petal.Width, 
+               names_to = c("plant_part", "dimension"),
+               names_pattern = "(.+)\\.(.+)",
+               values_to = "cm")
+
+# alternative using separate()
+myiris_long_separated2 <- myiris %>% 
+  pivot_longer(cols = Sepal.Length:Petal.Width, 
+               names_to = "measurement_type",
+               values_to = "cm") %>%
+  separate(col = measurement_type,
+           sep = "\\.",
+           into = c("plant_part", "dimension"))
+
+```
+
+4. Now make the data set just a *little* wider, by putting the length and width measurements in different columns.
+
+```{r}
+myiris_lengthwidth <- myiris_long_separated %>%
+  pivot_wider(names_from = dimension, values_from = cm)
+```
+
+5. Now create a scatterplot of length by width (using `geom_point()`) and map the `color` aesthetic of `geom_point()` to the species variable.
+
+```{r plot = TRUE}
+ggplot(myiris_lengthwidth, aes(Length, Width)) + 
+  geom_point(aes(color = Species))
+
+ggplot(myiris_lengthwidth, aes(Length, Width)) + 
+  geom_point(aes(color = Species)) +
+  scale_color_brewer(palette = "Set1") + 
+  theme_minimal()
+
+ggplot(myiris_lengthwidth, aes(Length, Width)) + 
+  geom_point(aes(color = Species)) +
+  scale_color_brewer(palette = "Set1") + 
+  facet_wrap(~ plant_part) +
+  theme_minimal()
+```
+
+Notes:
+- [Check out the Color Brewer website](https://colorbrewer2.org/)
+
+## Practice Exercise #7
+
+1. Create a simple loop to print out a vector of strings, one at a time
+
+```{r}
+for(word in c("this", "is", "a", "very", "simple", "and", "boring", "loop")) {
+  cat(word, "\n")
+}
+```
+
+2. Create a loop that will print out several different plots to a file:
+
+    a. Use the "tidy" version of the `iris` data (re-run the code to get from the original data to the version where sepals and petals are in different columns).
+    
+```{r}
+myiris <- iris
+head(iris)
+myiris_sepalpetal <- myiris %>% 
+  mutate(plantID = paste0("plant", 1:nrow(.))) %>%
+  pivot_longer(cols = Sepal.Length:Petal.Width,
+               names_to = c("plant_part", "dimension"),
+               names_pattern = "(.+)\\.(.+)",
+               values_to = "cm") %>%
+  pivot_wider(names_from = plant_part,
+              values_from = cm)
+head(myiris_sepalpetal)
+summary(myiris_sepalpetal)
+```
+
+    b. Create a scatterplot of sepal size by petal size for the whole data set, using color to distinguish length and width.
+    
+```{r}
+ggplot(myiris_sepalpetal, aes(Sepal, Petal)) + geom_point(aes(color = dimension))
+
+# a little prettier
+ggplot(myiris_sepalpetal, aes(Sepal, Petal)) + geom_point(aes(color = dimension)) +
+  scale_color_brewer(palette = "Set1") + 
+  theme_minimal()
+```
+
+    c. Use subsetting to plot only the data from the "setosa" species.
+
+```{r}
+ggplot(filter(myiris_sepalpetal, Species %in% "setosa"), 
+       aes(Sepal, Petal)) + 
+  geom_point(aes(color = dimension)) +
+  scale_color_brewer(palette = "Set1") + 
+  theme_minimal() +
+  ggtitle("setosa")
+```
+
+    d. Use the `pdf()` and `dev.off()` functions to create a file with this plot in it
+
+```{r}
+pdf("setosa_plot.pdf")
+ggplot(filter(myiris_sepalpetal, Species %in% "setosa"), 
+       aes(Sepal, Petal)) + 
+  geom_point(aes(color = dimension)) +
+  scale_color_brewer(palette = "Set1") + 
+  theme_minimal() +
+  ggtitle("setosa")
+dev.off()
+```
+
+    e. Use a loop to create the sample plot for each of the three species, one at a time, writing each of them to the same PDF
+
+```{r}
+pdf("allspecies_plots.pdf")
+for(this_species in levels(myiris$Species)) {
+  this_plot <- ggplot(filter(myiris_sepalpetal, Species %in% this_species), 
+                      aes(Sepal, Petal)) + 
+    geom_point(aes(color = dimension)) +
+    scale_color_brewer(palette = "Set1") + 
+    theme_minimal() +
+    ggtitle(this_species)
+  print(this_plot)
+}
+dev.off()
+```
+
+    f. Modify this code to create a different PDF for each plot
+
+```{r}
+for(this_species in levels(myiris$Species)) {
+  pdf(paste0(this_species, "_plot.pdf"))
+  this_plot <- ggplot(filter(myiris_sepalpetal, Species %in% this_species), 
+                      aes(Sepal, Petal)) + 
+    geom_point(aes(color = dimension)) +
+    scale_color_brewer(palette = "Set1") + 
+    theme_minimal() +
+    ggtitle(this_species)
+  print(this_plot)
+  dev.off()
+}
+```
+
